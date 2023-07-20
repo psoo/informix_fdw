@@ -32,6 +32,14 @@
 #include "optimizer/appendinfo.h"
 #endif
 
+/*
+ * For REL_16_STABLE, as of commit a61b1f74823 we need optimizer/inherit.h
+ * for get_rel_all_updated_cols().
+ */
+#if PG_VERSION_NUM >= 160000
+#include "optimizer/inherit.h"
+#endif
+
 #include "access/xact.h"
 #include "utils/lsyscache.h"
 
@@ -136,10 +144,21 @@ extern PGDLLIMPORT double cpu_tuple_cost;
 #define IFX_SYSTABLE_SCAN_SNAPSHOT NULL
 #endif
 
-#if PG_VERSION_NUM >= 90500
-#define RTE_UPDATED_COLS(a) (a)->updatedCols
+#if PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 160000
+#define RTE_UPDATED_COLS(planInfo, resultRel, set) \
+	RangeTableEntry *rte = planner_rte_fetch((resultRel), (planInfo));	\
+	(set) = bms_copy(rte->updatedCols);
+#define BMS_LOOKUP_COL(set, attnum) bms_first_member((set))
+#elif PG_VERSION_NUM >= 160000
+#define RTE_UPDATED_COLS(planInfo, resultRel, set) \
+	RelOptInfo *relInfo = find_base_rel((planInfo), (resultRel));	\
+	(set) = get_rel_all_updated_cols((planInfo), (relInfo));
+#define BMS_LOOKUP_COL(set, attnum) bms_next_member((set), (attnum))
 #else
-#define RTE_UPDATED_COLS(a) (a)->modifiedCols
+#define RTE_UPDATED_COLS(planInfo, resultRel, set) \
+	RangeTableEntry *rte = planner_rte_fetch((resultRel), (planInfo));	\
+	(set) = bms_copy(rte->modifiedCols);
+#define BMS_LOOKUP_COL(set, attnum) bms_first_member((set))
 #endif
 
 /*
@@ -2043,13 +2062,15 @@ static void ifxPrepareParamsForModify(IfxFdwExecutionState *state,
 			 *
 			 * Shamelessly stolen from src/contrib/postgres_fdw.
 			 */
-			RangeTblEntry *rte = planner_rt_fetch(resultRelation, planInfo);
-			Bitmapset  *tmpset = bms_copy(RTE_UPDATED_COLS(rte));
+			Bitmapset  *tmpset = NULL;
+			int         colnum = -1;
 			AttrNumber	col;
 
-			while ((col = bms_first_member(tmpset)) >= 0)
+			RTE_UPDATED_COLS(planInfo, resultRelation, tmpset);
+
+			while ((colnum = BMS_LOOKUP_COL(tmpset, colnum)) >= 0)
 			{
-				col += FirstLowInvalidHeapAttributeNumber;
+				col = colnum + FirstLowInvalidHeapAttributeNumber;
 				if (col <= InvalidAttrNumber)		/* shouldn't happen */
 					elog(ERROR, "system-column update is not supported");
 				state->affectedAttrNums = lappend_int(state->affectedAttrNums,
