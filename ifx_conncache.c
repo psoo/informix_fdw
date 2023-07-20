@@ -64,7 +64,7 @@ static void ifxConnCache_init()
 	ifxCache.connections = hash_create(IFX_CONNCACHE_HASHTABLE,
 									   IFX_CONNCACHE_SIZE,
 									   &hash_ctl,
-									   HASH_ELEM | HASH_CONTEXT);
+									   HASH_ELEM | HASH_CONTEXT | HASH_STRINGS);
 
 	/*
 	 * Back to old context.
