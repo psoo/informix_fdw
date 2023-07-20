@@ -146,7 +146,7 @@ extern PGDLLIMPORT double cpu_tuple_cost;
 
 #if PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 160000
 #define RTE_UPDATED_COLS(planInfo, resultRel, set) \
-	RangeTableEntry *rte = planner_rte_fetch((resultRel), (planInfo));	\
+	RangeTblEntry *rte = planner_rt_fetch((resultRel), (planInfo));	\
 	(set) = bms_copy(rte->updatedCols);
 #define BMS_LOOKUP_COL(set, attnum) bms_first_member((set))
 #elif PG_VERSION_NUM >= 160000
@@ -156,7 +156,7 @@ extern PGDLLIMPORT double cpu_tuple_cost;
 #define BMS_LOOKUP_COL(set, attnum) bms_next_member((set), (attnum))
 #else
 #define RTE_UPDATED_COLS(planInfo, resultRel, set) \
-	RangeTableEntry *rte = planner_rte_fetch((resultRel), (planInfo));	\
+	RangeTblEntry *rte = planner_rt_fetch((resultRel), (planInfo));	\
 	(set) = bms_copy(rte->modifiedCols);
 #define BMS_LOOKUP_COL(set, attnum) bms_first_member((set))
 #endif
