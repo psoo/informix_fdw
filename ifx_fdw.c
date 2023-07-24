@@ -1509,6 +1509,11 @@ ifxPlanForeignModify(PlannerInfo *root,
 		 * cursor here feeded with the new values during ifxExecForeignInsert().
 		 */
 		ifxSetupFdwScan(&coninfo, &state, &plan_values, rte->relid, IFX_PLAN_SCAN);
+
+		/*
+		 * ...don't forget the cursor name.
+		 */
+		state->stmt_info.cursor_name = ifxGenCursorName(state->stmt_info.refid);
 	}
 
 	/* Sanity check, should not happen */
@@ -1538,9 +1543,10 @@ ifxPlanForeignModify(PlannerInfo *root,
 	}
 
 	/*
-	 * Prepare and describe the statement.
+	 * Generate a statement name for execution later.
+	 * This is an unique statement identifier.
 	 */
-	ifxPrepareModifyQuery(&state->stmt_info, coninfo, operation);
+	state->stmt_info.stmt_name = ifxGenStatementName(state->stmt_info.refid);
 
 	/*
 	 * Serialize all required plan data for use in executor later.
@@ -1562,11 +1568,6 @@ static void ifxPrepareModifyQuery(IfxStatementInfo *info,
 								  CmdType operation)
 {
 	/*
-	 * Unique statement identifier.
-	 */
-	info->stmt_name = ifxGenStatementName(info->refid);
-
-	/*
 	 * Prepare the query.
 	 */
 	elog(DEBUG1, "prepare query \"%s\"", info->query);
@@ -1579,11 +1580,6 @@ static void ifxPrepareModifyQuery(IfxStatementInfo *info,
 	 */
 	if (operation == CMD_INSERT)
 	{
-		/*
-		 * ...don't forget the cursor name.
-		 */
-		info->cursor_name = ifxGenCursorName(info->refid);
-
 		elog(DEBUG1, "declare cursor \"%s\" for statement \"%s\"",
 			 info->cursor_name,
 			 info->stmt_name);
@@ -1676,6 +1672,11 @@ ifxBeginForeignModify(ModifyTableState *mstate,
 	}
 
 	/*
+	 * Prepare and describe the statement.
+	 */
+	ifxPrepareModifyQuery(&state->stmt_info, coninfo, mstate->operation);
+
+	/*
 	 * An INSERT action need to do much more preparing work
 	 * than UPDATE/DELETE: Since no foreign scan is involved, the
 	 * insert modify action need to prepare its own INSERT cursor and
@@ -1716,6 +1717,7 @@ ifxBeginForeignModify(ModifyTableState *mstate,
 		else
 		{
 			/* CMD_UPDATE */
+			state->stmt_info.descr_name = ifxGenDescrName(state->stmt_info.refid);
 			ifxDescribeStmtInput(&state->stmt_info);
 		}
 

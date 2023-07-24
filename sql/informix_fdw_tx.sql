@@ -950,6 +950,92 @@ COMMIT;
 ALTER FOREIGN TABLE inttest OPTIONS(DROP disable_rowid);
 
 --------------------------------------------------------------------------------
+-- Tests for PREPARE
+--
+-- See discussion in github issue
+-- https://github.com/credativ/informix_fdw/issues/31
+--------------------------------------------------------------------------------
+
+--
+-- INSERT
+--
+
+BEGIN;
+
+
+PREPARE ins_inttest(bigint) AS INSERT INTO inttest VALUES($1);
+
+EXECUTE ins_inttest (1);
+
+EXECUTE ins_inttest (2);
+
+EXECUTE ins_inttest (3);
+
+EXECUTE ins_inttest (4);
+
+EXECUTE ins_inttest (5);
+
+EXECUTE ins_inttest (6);
+
+EXECUTE ins_inttest (7);
+
+COMMIT;
+
+DEALLOCATE ins_inttest;
+
+--
+-- UPDATE
+--
+
+BEGIN;
+
+PREPARE upd_inttest(bigint) AS UPDATE inttest SET f1 = f1 WHERE f1 = $1;
+
+EXECUTE upd_inttest (1);
+
+EXECUTE upd_inttest (2);
+
+EXECUTE upd_inttest (3);
+
+EXECUTE upd_inttest (4);
+
+EXECUTE upd_inttest (5);
+
+EXECUTE upd_inttest (6);
+
+EXECUTE upd_inttest (7);
+
+COMMIT;
+
+DEALLOCATE upd_inttest;
+
+--
+-- DELETE
+--
+
+BEGIN;
+
+PREPARE del_inttest(bigint) AS DELETE FROM inttest WHERE f1 = $1;
+
+EXECUTE del_inttest (1);
+
+EXECUTE del_inttest (2);
+
+EXECUTE del_inttest (3);
+
+EXECUTE del_inttest (4);
+
+EXECUTE del_inttest (5);
+
+EXECUTE del_inttest (6);
+
+EXECUTE del_inttest (7);
+
+COMMIT;
+
+DEALLOCATE del_inttest;
+
+--------------------------------------------------------------------------------
 -- Regression Tests End, Cleanup
 --------------------------------------------------------------------------------
 
