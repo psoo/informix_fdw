@@ -1453,12 +1453,82 @@ ifxPlanForeignModify(PlannerInfo *root,
 			RelOptInfo *relInfo = root->simple_rel_array[resultRelation];
 			IfxCachedConnection *cached;
 			IfxFdwExecutionState *scan_state;
+			IfxFdwPlanState *planState;
 
 			/*
-			 * Extract the state of the foreign scan.
+			 * Check if there is a foreign scan state present. This would
+			 * already have initialized all required objects on the foreign
+			 * Informix server.
+			 *
+			 * In normal cases, ifxGetForeignRelSize() should already have
+			 * initialized all required objects here, since we use the scan
+			 * state to retrieve optimizer stats from Informix to get estimates
+			 * based on the query back from the Informix server.
+			 *
+			 * This is not always true, so we need to check whether a foreign scan
+			 * was already initialized or not (e.g. in the prepared statement
+			 * case). Check if a private execution state was properly initialized,
+			 * and if not, execute the required steps to initiate one ourselves.
 			 */
-			scan_state = (IfxFdwExecutionState *)
-				((IfxFdwPlanState *)relInfo->fdw_private)->state;
+			if (relInfo->fdw_private == NULL) {
+
+				planState = palloc(sizeof(IfxFdwPlanState));
+
+				/*
+				 * Establish remote informix connection or get
+				 * a already cached connection from the informix connection
+				 * cache.
+				 */
+				ifxSetupFdwScan(&coninfo, &scan_state, &plan_values,
+								rte->relid, IFX_PLAN_SCAN);
+
+				/*
+				 * Check for predicates that can be pushed down
+				 * to the informix server, but skip it in case the user
+				 * has set the disable_predicate_pushdown option...
+				 */
+				if (coninfo->predicate_pushdown)
+				{
+					/*
+					 * Also save a list of excluded RestrictInfo structures not carrying any
+					 * predicate found to be pushed down by ifxFilterQuals(). Those will
+					 * passed later to ifxGetForeignPlan()...
+					 */
+					scan_state->stmt_info.predicate = ifxFilterQuals(root, relInfo,
+																	 &(planState->excl_restrictInfo),
+																	 rte->relid);
+					elog(DEBUG2, "predicate for pushdown: %s", scan_state->stmt_info.predicate);
+				}
+				else
+				{
+					elog(DEBUG2, "predicate pushdown disabled");
+					scan_state->stmt_info.predicate = "";
+				}
+
+				/*
+				 * Establish the remote query on the informix server.
+				 *
+				 * If we have an UPDATE or DELETE query, the foreign scan needs to
+				 * employ an FOR UPDATE cursor, since we are going to reuse it
+				 * during modify.
+				 */
+				if ((root->parse->commandType == CMD_UPDATE)
+					|| (root->parse->commandType == CMD_DELETE))
+				{
+					scan_state->stmt_info.cursorUsage = IFX_UPDATE_CURSOR;
+				}
+
+				ifxPrepareScan(coninfo, scan_state);
+
+			} else {
+
+				/*
+				 * Extract the state of the foreign scan.
+				 */
+				scan_state = (IfxFdwExecutionState *)
+					((IfxFdwPlanState *)relInfo->fdw_private)->state;
+
+			}
 
 			/*
 			 * Don't reuse the connection info from the scan state,
@@ -1515,6 +1585,16 @@ ifxPlanForeignModify(PlannerInfo *root,
 		 */
 		state->stmt_info.cursor_name = ifxGenCursorName(state->stmt_info.refid);
 	}
+
+	/*
+	 * Check wether this foreign table has AFTER EACH ROW
+	 * triggers attached. Currently this information is just
+	 * for completeness, since we always include all columns
+	 * in a foreign scan.
+	 */
+	ifxCheckForAfterRowTriggers(rte->relid,
+								state,
+								root->parse->commandType);
 
 	/* Sanity check, should not happen */
 	Assert((state != NULL) && (coninfo != NULL));
@@ -3277,16 +3357,6 @@ static void ifxGetForeignRelSize(PlannerInfo *planInfo,
 	 */
 	ifxSetupFdwScan(&coninfo, &state, &plan_values,
 					foreignTableId, IFX_PLAN_SCAN);
-
-	/*
-	 * Check wether this foreign table has AFTER EACH ROW
-	 * triggers attached. Currently this information is just
-	 * for completeness, since we always include all columns
-	 * in a foreign scan.
-	 */
-	ifxCheckForAfterRowTriggers(foreignTableId,
-								state,
-								planInfo->parse->commandType);
 
 	/*
 	 * Check for predicates that can be pushed down
